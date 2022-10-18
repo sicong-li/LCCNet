@@ -121,21 +121,34 @@ def lidar_project_depth(pc_rotated, cam_calib, img_shape):
 # CCN training
 @ex.capture
 def train(model, optimizer, rgb_img, refl_img, target_transl, target_rot, loss_fn, point_clouds, loss):
+    train_start = time.time()
     model.train()
 
+    train_end = time.time()
+    print(f'model.train() time cost:{train_end - train_start}')
     optimizer.zero_grad()
 
+    optimizer_end = time.time()
+    print(f'zero_grad time cost:{optimizer_end - train_end}')
     # Run model
     transl_err, rot_err = model(rgb_img, refl_img)
 
+    model_end = time.time()
+    print(f'model time cost:{model_end - optimizer_end}')
     if loss == 'points_distance' or loss == 'combined':
         losses = loss_fn(point_clouds, target_transl, target_rot, transl_err, rot_err)
     else:
         losses = loss_fn(target_transl, target_rot, transl_err, rot_err)
 
+    loss_end = time.time()
+    print(f'loss time cost :{loss_end - model_end}')
     losses['total_loss'].backward()
+    backward_end = time.time()
+    print(f'backward time cost:{backward_end - loss_end}')
     optimizer.step()
 
+    print(f'step time cost:{time.time() - backward_end}')
+    print(f'train function time cost:{time.time() - train_start}')
     return losses, rot_err, transl_err
 
 
