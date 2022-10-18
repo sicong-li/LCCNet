@@ -24,16 +24,40 @@ from PIL import Image
 from torch.utils.data import Dataset
 from torchvision import transforms
 
-from utils import invert_pose, rotate_forward, quaternion_from_matrix, read_calib_file
+from utils import invert_pose, rotate_forward, quaternion_from_matrix
 from pykitti import odometry
 import pykitti
 
+def read_calib_file(filepath):
+    """Read in a calibration file and parse into a dictionary."""
+    data = {}
+
+    with open(filepath, 'r') as f:
+        for line in f.readlines():
+            key, value = line.split(':', 1)
+            # The only non-float values in these files are dates, which
+            # we don't care about anyway
+            try:
+                data[key] = np.array([float(x) for x in value.split()])
+            except ValueError:
+                pass
+
+    return data
 
 class DatasetLidarCameraKittiOdometry(Dataset):
 
     def __init__(self, dataset_dir, transform=None, augmentation=False, use_reflectance=False,
-                 max_t=1.5, max_r=20., split='val', device='cpu', val_sequence='00', suf='.png'):
+                 max_t=1.5, max_r=20., split='val', device='cpu', val_sequence='00', suf='.png',val=False,dataset=None):
         super(DatasetLidarCameraKittiOdometry, self).__init__()
+        if dataset == "neolix":
+            self.__init_kitti_data__(dataset_dir, transform, augmentation, use_reflectance,
+                 max_t, max_r, split, device, val, suf)
+        else:
+            self.__init_kitti_data__(dataset_dir, transform, augmentation, use_reflectance,
+                 max_t, max_r, split, device, val_sequence, suf)
+
+    def __init_kitti_data__(self, dataset_dir, transform=None, augmentation=False, use_reflectance=False,
+                 max_t=1.5, max_r=20., split='val', device='cpu', val_sequence='00', suf='.png'):
         self.use_reflectance = use_reflectance
         self.maps_folder = ''
         self.device = device
@@ -82,6 +106,84 @@ class DatasetLidarCameraKittiOdometry(Dataset):
                     if split.startswith('val') or split == 'test':
                         self.all_files.append(os.path.join(seq, image_name.split('.')[0]))
                 elif (not seq == val_sequence) and split == 'train':
+                    self.all_files.append(os.path.join(seq, image_name.split('.')[0]))
+
+        self.val_RT = []
+        if split == 'val' or split == 'test':
+            # val_RT_file = os.path.join(dataset_dir, 'sequences',
+            #                            f'val_RT_seq{val_sequence}_{max_r:.2f}_{max_t:.2f}.csv')
+            val_RT_file = os.path.join(dataset_dir, 'sequences',
+                                       f'val_RT_left_seq{val_sequence}_{max_r:.2f}_{max_t:.2f}.csv')
+            if os.path.exists(val_RT_file):
+                print(f'VAL SET: Using this file: {val_RT_file}')
+                df_test_RT = pd.read_csv(val_RT_file, sep=',')
+                for index, row in df_test_RT.iterrows():
+                    self.val_RT.append(list(row))
+            else:
+                print(f'VAL SET - Not found: {val_RT_file}')
+                print("Generating a new one")
+                val_RT_file = open(val_RT_file, 'w')
+                val_RT_file = csv.writer(val_RT_file, delimiter=',')
+                val_RT_file.writerow(['id', 'tx', 'ty', 'tz', 'rx', 'ry', 'rz'])
+                for i in range(len(self.all_files)):
+                    rotz = np.random.uniform(-max_r, max_r) * (3.141592 / 180.0)
+                    roty = np.random.uniform(-max_r, max_r) * (3.141592 / 180.0)
+                    rotx = np.random.uniform(-max_r, max_r) * (3.141592 / 180.0)
+                    transl_x = np.random.uniform(-max_t, max_t)
+                    transl_y = np.random.uniform(-max_t, max_t)
+                    transl_z = np.random.uniform(-max_t, max_t)
+                    # transl_z = np.random.uniform(-max_t, min(max_t, 1.))
+                    val_RT_file.writerow([i, transl_x, transl_y, transl_z,
+                                           rotx, roty, rotz])
+                    self.val_RT.append([float(i), float(transl_x), float(transl_y), float(transl_z),
+                                         float(rotx), float(roty), float(rotz)])
+
+            assert len(self.val_RT) == len(self.all_files), "Something wrong with test RTs"
+
+    def __init_neolix_data__(self, dataset_dir, transform=None, augmentation=False, use_reflectance=False,
+                 max_t=1.5, max_r=20., split='val', device='cpu', val=False, suf='.png'):
+        self.use_reflectance = use_reflectance
+        self.maps_folder = ''
+        self.device = device
+        self.max_r = max_r
+        self.max_t = max_t
+        self.augmentation = augmentation
+        self.root_dir = dataset_dir
+        self.transform = transform
+        self.split = split
+        self.GTs_R = {}
+        self.GTs_T = {}
+        self.GTs_T_cam02_velo = {}
+        self.K = {}
+        self.suf = suf
+
+        self.all_files = []
+        self.data_folder = ['']
+        # self.model = CameraModel()
+        # self.model.focal_length = [7.18856e+02, 7.18856e+02]
+        # self.model.principal_point = [6.071928e+02, 1.852157e+02]
+        # for seq in ['00', '03', '05', '06', '07', '08', '09']:
+        for folder in self.data_folder:
+            calib = read_calib_file(os.path.join(self.root_dir, folder, "calib.txt"))
+            T_velo2_cam = calib["E"].reshape(3,4)
+            T_cam02_velo_np = calib.T_cam2_velo #gt pose from cam02 to velo_lidar (T_cam02_velo: 4x4)
+            self.K[seq] = calib["K"] # 3x3
+            # T_cam02_velo = torch.from_numpy(T_cam02_velo_np)
+            # GT_R = quaternion_from_matrix(T_cam02_velo[:3, :3])
+            # GT_T = T_cam02_velo[3:, :3]
+            # self.GTs_R[seq] = GT_R # GT_R = np.array([row['qw'], row['qx'], row['qy'], row['qz']])
+            # self.GTs_T[seq] = GT_T # GT_T = np.array([row['x'], row['y'], row['z']])
+            self.GTs_T_cam02_velo[seq] = T_cam02_velo_np #gt pose from cam02 to velo_lidar (T_cam02_velo: 4x4)
+
+            image_list = os.listdir(os.path.join(dataset_dir, folder))
+            image_list.sort()
+
+            for image_name in image_list:
+                if not os.path.exists(os.path.join(dataset_dir, folder, str(image_name.split('.')[0])+'.bin')):
+                    continue
+                if not os.path.exists(os.path.join(dataset_dir, 'sequences', seq, 'image_2',
+                                                   str(image_name.split('.')[0])+suf)):
+                    continue
                     self.all_files.append(os.path.join(seq, image_name.split('.')[0]))
 
         self.val_RT = []

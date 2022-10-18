@@ -50,20 +50,20 @@ ex.captured_out_filter = apply_backspaces_and_linefeeds
 def config():
     checkpoints = './checkpoints/'
     dataset = 'kitti/odom' # 'kitti/raw'
-    data_folder = '/home/wangshuo/Datasets/KITTI/odometry/data_odometry_full/'
+    data_folder = '/data/kitti_odometry/dataset'
     use_reflectance = False
     val_sequence = 0
     epochs = 120
     BASE_LEARNING_RATE = 3e-4  # 1e-4
     loss = 'combined'
-    max_t = 0.1 # 1.5, 1.0,  0.5,  0.2,  0.1
-    max_r = 1. # 20.0, 10.0, 5.0,  2.0,  1.0
+    max_t = 1.5 # 1.5, 1.0,  0.5,  0.2,  0.1
+    max_r = 20 # 20.0, 10.0, 5.0,  2.0,  1.0
     batch_size = 240  # 120
     num_worker = 6
     network = 'Res_f1'
     optimizer = 'adam'
     resume = True
-    weights = './pretrained/kitti/kitti_iter5.tar'
+    weights = None
     rescale_rot = 1.0
     rescale_transl = 2.0
     precision = "O0"
@@ -77,7 +77,7 @@ def config():
 
 
 # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-os.environ['CUDA_VISIBLE_DEVICES'] = '0, 1, 2, 3'
+os.environ['CUDA_VISIBLE_DEVICES'] = '4, 5, 6, 7'
 
 
 EPOCH = 1
@@ -158,7 +158,7 @@ def val(model, rgb_img, refl_img, target_transl, target_rot, loss_fn, point_clou
     # else:
     #     total_loss = loss_fn(point_clouds, target_transl, target_rot, transl_err, rot_err)
 
-    total_trasl_error = torch.tensor(0.0)
+    total_trasl_error = torch.tensor(0.0).to(transl_err.device)
     total_rot_error = quaternion_distance(target_rot, rot_err, target_rot.device)
     total_rot_error = total_rot_error * 180. / math.pi
     for j in range(rgb_img.shape[0]):
