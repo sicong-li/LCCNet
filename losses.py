@@ -11,7 +11,8 @@
 
 import torch
 from torch import nn as nn
-
+import time
+from logger import *
 from quaternion_distances import quaternion_distance
 from utils import quat2mat, rotate_back, rotate_forward, tvector2mat, quaternion_from_matrix
 
@@ -143,11 +144,11 @@ class CombinedLoss(nn.Module):
             loss_rot = quaternion_distance(rot_err, target_rot, rot_err.device).mean()
         pose_loss = self.rescale_trans*loss_transl + self.rescale_rot*loss_rot
 
-        #start = time.time()
+        start = time.time()
         point_clouds_loss = torch.tensor([0.0]).to(transl_err.device)
         for i in range(len(point_clouds)):
             point_cloud_gt = point_clouds[i].to(transl_err.device)
-            point_cloud_out = point_clouds[i].clone()
+            point_cloud_out = point_clouds[i].clone().to(transl_err.device)
 
             R_target = quat2mat(target_rot[i])
             T_target = tvector2mat(target_transl[i])
@@ -158,15 +159,14 @@ class CombinedLoss(nn.Module):
             RT_predicted = torch.mm(T_predicted, R_predicted)
 
             RT_total = torch.mm(RT_target.inverse(), RT_predicted)
-
+            RT_total = RT_total.to(point_cloud_out.device)
             point_cloud_out = rotate_forward(point_cloud_out, RT_total)
 
             error = (point_cloud_out - point_cloud_gt).norm(dim=0)
             error.clamp(100.)
             point_clouds_loss += error.mean()
 
-        #end = time.time()
-        #print("3D Distance Time: ", end-start)
+        DEBUG("3D Distance Time: {}".format(time.time() - start))
         total_loss = (1 - self.weight_point_cloud) * pose_loss +\
                      self.weight_point_cloud * (point_clouds_loss/target_transl.shape[0])
         self.loss['total_loss'] = total_loss

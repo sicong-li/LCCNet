@@ -10,6 +10,7 @@
 # based on github.com/cattaneod/CMRNet/blob/master/DatasetVisibilityKitti.py
 
 import csv
+from http.client import PRECONDITION_REQUIRED
 import os
 from math import radians
 import cv2
@@ -23,8 +24,11 @@ import torchvision.transforms.functional as TTF
 from PIL import Image
 from torch.utils.data import Dataset
 from torchvision import transforms
+import torch.nn.functional as F
+import time
 
-from utils import invert_pose, rotate_forward, quaternion_from_matrix
+
+from utils import invert_pose, rotate_forward, quaternion_from_matrix,rotate_back
 from pykitti import odometry
 import pykitti
 
@@ -44,15 +48,47 @@ def read_calib_file(filepath):
 
     return data
 
+def get_2D_lidar_projection(pcl, cam_intrinsic):
+    pcl_xyz = cam_intrinsic @ pcl.T
+    pcl_xyz = pcl_xyz.T
+    pcl_z = pcl_xyz[:, 2]
+    pcl_xyz = pcl_xyz / (pcl_xyz[:, 2, None] + 1e-10)
+    pcl_uv = pcl_xyz[:, :2]
+
+    return pcl_uv, pcl_z
+
+def lidar_project_depth(pc_rotated, cam_calib, img_shape):
+    pc_rotated = pc_rotated[:3, :].detach().cpu().numpy()
+    cam_intrinsic = cam_calib
+    pcl_uv, pcl_z = get_2D_lidar_projection(pc_rotated.T, cam_intrinsic)
+    mask = (pcl_uv[:, 0] > 0) & (pcl_uv[:, 0] < img_shape[1]) & (pcl_uv[:, 1] > 0) & (
+            pcl_uv[:, 1] < img_shape[0]) & (pcl_z > 0)
+    pcl_uv = pcl_uv[mask]
+    pcl_z = pcl_z[mask]
+    pcl_uv = pcl_uv.astype(np.uint32)
+    pcl_z = pcl_z.reshape(-1, 1)
+    depth_img = np.zeros((img_shape[0], img_shape[1], 1))
+    depth_img[pcl_uv[:, 1], pcl_uv[:, 0]] = pcl_z
+    depth_img = torch.from_numpy(depth_img.astype(np.float32))
+    depth_img = depth_img
+    depth_img = depth_img.permute(2, 0, 1)
+
+    return depth_img, pcl_uv
+
 class DatasetLidarCameraKittiOdometry(Dataset):
 
     def __init__(self, dataset_dir, transform=None, augmentation=False, use_reflectance=False,
-                 max_t=1.5, max_r=20., split='val', device='cpu', val_sequence='00', suf='.png',val=False,dataset=None):
+                 max_t=1.5, max_r=20., split='val', device='cpu', val_sequence='00', suf='.png',val=False,
+                 dataset=None,config=None, img_shape = None):
         super(DatasetLidarCameraKittiOdometry, self).__init__()
+        self._config = config
+        self.img_shape = img_shape
         if dataset == "neolix":
+            print('excute neolix dataset init')
             self.__init_kitti_data__(dataset_dir, transform, augmentation, use_reflectance,
                  max_t, max_r, split, device, val, suf)
         else:
+            print('excute kitti dataset init')
             self.__init_kitti_data__(dataset_dir, transform, augmentation, use_reflectance,
                  max_t, max_r, split, device, val_sequence, suf)
 
@@ -273,8 +309,9 @@ class DatasetLidarCameraKittiOdometry(Dataset):
                 pc_org[3, :] = 1.
         else:
             raise TypeError("Wrong PointCloud shape")
-        
-        pc_rot = np.matmul(RT, pc_org.numpy())
+        pc_rot = torch.mm(torch.from_numpy(RT), pc_org).numpy()
+        # a = (RT @ pc_org.T).T
+        # pc_rot = np.einsum('ij,nj->ni', RT, pc_org)
         pc_rot = pc_rot.astype(np.float32).copy()
         pc_in = torch.from_numpy(pc_rot)
 
@@ -348,6 +385,42 @@ class DatasetLidarCameraKittiOdometry(Dataset):
         if h_mirror:
             calib[2] = (img.shape[2] / 2)*2 - calib[2]
 
+        real_shape = [img.shape[1], img.shape[2], img.shape[0]]
+
+        # pc_in = pc_in.cuda() # 变换到相机坐标系下的激光雷达点云
+        pc_lidar = pc_in.clone()
+
+        if self._config['max_depth'] < 80.:
+            pc_lidar = pc_lidar[:, pc_lidar[0, :] < self._config['max_depth']].clone()
+
+        depth_gt, uv = lidar_project_depth(pc_lidar, calib, real_shape) # image_shape
+        depth_gt /= self._config['max_depth']
+
+        RR = mathutils.Quaternion(R).to_matrix()
+        RR.resize_4x4()
+        TT = mathutils.Matrix.Translation(T)
+        RT_ = TT * RR
+
+        pc_rotated = rotate_back(pc_in, RT_) # Pc` = RT * Pc
+
+        if self._config['max_depth'] < 80.:
+            pc_rotated = pc_rotated[:, pc_rotated[0, :] < self._config['max_depth']].clone()
+
+        depth_img, uv = lidar_project_depth(pc_rotated, calib, real_shape) # image_shape
+        depth_img /= self._config['max_depth']
+
+        # PAD ONLY ON RIGHT AND BOTTOM SIDE
+        rgb = img
+        shape_pad = [0, 0, 0, 0]
+
+        shape_pad[3] = (self.img_shape[0] - rgb.shape[1])  # // 2
+        shape_pad[1] = (self.img_shape[1] - rgb.shape[2])  # // 2 + 1
+
+        # print(f'shape_padL{shape_pad}')
+        rgb = F.pad(rgb, shape_pad)
+        depth_img = F.pad(depth_img, shape_pad)
+        depth_gt = F.pad(depth_gt, shape_pad)
+
         if self.split == 'test':
             sample = {'rgb': img, 'point_cloud': pc_in, 'calib': calib,
                       'tr_error': T, 'rot_error': R, 'seq': int(seq), 'img_path': img_path,
@@ -356,7 +429,9 @@ class DatasetLidarCameraKittiOdometry(Dataset):
         else:
             sample = {'rgb': img, 'point_cloud': pc_in, 'calib': calib,
                       'tr_error': T, 'rot_error': R, 'seq': int(seq),
-                      'rgb_name': rgb_name, 'item': item, 'extrin': RT}
+                      'rgb_name': rgb_name, 'item': item, 'extrin': RT,'lidar_input': depth_img,'rgb_input': rgb,
+                      'pc_rotated': pc_rotated, 'shape_pad': shape_pad, 'real_shape': real_shape, 'depth_gt': depth_gt
+                      }
 
         return sample
 

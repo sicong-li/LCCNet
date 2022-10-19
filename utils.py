@@ -119,15 +119,29 @@ def merge_inputs(queries):
     point_clouds = []
     imgs = []
     reflectances = []
+    pc_rotated = []
+    shape_pad = []
+    real_shape = []
+    depth_gt = []
+    ignore_keys = ['point_cloud', 'rgb', 'reflectance', 'pc_rotated', 'shape_pad', 'real_shape', 'depth_gt']
     returns = {key: default_collate([d[key] for d in queries]) for key in queries[0]
-               if key != 'point_cloud' and key != 'rgb' and key != 'reflectance'}
+               if key not in ignore_keys}
     for input in queries:
         point_clouds.append(input['point_cloud'])
         imgs.append(input['rgb'])
+        pc_rotated.append(input['pc_rotated'])
+        shape_pad.append(input['shape_pad'])
+        real_shape.append(input['real_shape'])
+        depth_gt.append(input['depth_gt'])
         if 'reflectance' in input:
             reflectances.append(input['reflectance'])
     returns['point_cloud'] = point_clouds
     returns['rgb'] = imgs
+    returns['pc_rotated'] = pc_rotated
+    returns['shape_pad'] = shape_pad
+    returns['real_shape'] = real_shape
+    returns['depth_gt'] = depth_gt
+
     if len(reflectances) > 0:
         returns['reflectance'] = reflectances
     return returns

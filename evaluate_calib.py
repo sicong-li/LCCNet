@@ -551,11 +551,11 @@ def main(_config, seed):
             errors_t2[i][k] = errors_t2[i][k].clone().detach().abs() * 100
 
         print(f"Iteration {i}: \tMean Translation Error: {errors_t[i].mean():.4f} cm "
-              f"     Mean Rotation Error: {errors_r[i].mean():.4f} °")
+              f"     Mean Rotation Error: {errors_r[i].mean():.4f} degree")
         print(f"Iteration {i}: \tMedian Translation Error: {errors_t[i].median():.4f} cm "
-              f"     Median Rotation Error: {errors_r[i].median():.4f} °")
+              f"     Median Rotation Error: {errors_r[i].median():.4f} degree")
         print(f"Iteration {i}: \tStd. Translation Error: {errors_t[i].std():.4f} cm "
-              f"     Std. Rotation Error: {errors_r[i].std():.4f} °\n")
+              f"     Std. Rotation Error: {errors_r[i].std():.4f} degree\n")
 
         # translation xyz
         print(f"Iteration {i}: \tMean Translation X Error: {errors_t2[i][0].mean():.4f} cm "
@@ -569,15 +569,15 @@ def main(_config, seed):
               f"     Std. Translation Z Error: {errors_t2[i][2].std():.4f} cm \n")
 
         # rotation rpy
-        print(f"Iteration {i}: \tMean Rotation Roll Error: {errors_rpy[i][0].mean(): .4f} °"
-              f"     Median Rotation Roll Error: {errors_rpy[i][0].median():.4f} °"
-              f"     Std. Rotation Roll Error: {errors_rpy[i][0].std():.4f} °")
-        print(f"Iteration {i}: \tMean Rotation Pitch Error: {errors_rpy[i][1].mean(): .4f} °"
-              f"     Median Rotation Pitch Error: {errors_rpy[i][1].median():.4f} °"
-              f"     Std. Rotation Pitch Error: {errors_rpy[i][1].std():.4f} °")
-        print(f"Iteration {i}: \tMean Rotation Yaw Error: {errors_rpy[i][2].mean(): .4f} °"
-              f"     Median Rotation Yaw Error: {errors_rpy[i][2].median():.4f} °"
-              f"     Std. Rotation Yaw Error: {errors_rpy[i][2].std():.4f} °\n")
+        print(f"Iteration {i}: \tMean Rotation Roll Error: {errors_rpy[i][0].mean(): .4f} degree"
+              f"     Median Rotation Roll Error: {errors_rpy[i][0].median():.4f} degree"
+              f"     Std. Rotation Roll Error: {errors_rpy[i][0].std():.4f} degree")
+        print(f"Iteration {i}: \tMean Rotation Pitch Error: {errors_rpy[i][1].mean(): .4f} degree"
+              f"     Median Rotation Pitch Error: {errors_rpy[i][1].median():.4f} degree"
+              f"     Std. Rotation Pitch Error: {errors_rpy[i][1].std():.4f} degree")
+        print(f"Iteration {i}: \tMean Rotation Yaw Error: {errors_rpy[i][2].mean(): .4f} degree"
+              f"     Median Rotation Yaw Error: {errors_rpy[i][2].median():.4f} degree"
+              f"     Std. Rotation Yaw Error: {errors_rpy[i][2].std():.4f} degree\n")
 
 
         with open(os.path.join(_config['output'], 'results.txt'),
@@ -585,11 +585,11 @@ def main(_config, seed):
             f.write(f"Iteration {i}: \n")
             f.write("Translation Error && Rotation Error:\n")
             f.write(f"Iteration {i}: \tMean Translation Error: {errors_t[i].mean():.4f} cm "
-                    f"     Mean Rotation Error: {errors_r[i].mean():.4f} °\n")
+                    f"     Mean Rotation Error: {errors_r[i].mean():.4f} degree\n")
             f.write(f"Iteration {i}: \tMedian Translation Error: {errors_t[i].median():.4f} cm "
-                    f"     Median Rotation Error: {errors_r[i].median():.4f} °\n")
+                    f"     Median Rotation Error: {errors_r[i].median():.4f} degree\n")
             f.write(f"Iteration {i}: \tStd. Translation Error: {errors_t[i].std():.4f} cm "
-                    f"     Std. Rotation Error: {errors_r[i].std():.4f} °\n\n")
+                    f"     Std. Rotation Error: {errors_r[i].std():.4f} degree\n\n")
 
             # translation xyz
             f.write("Translation Error XYZ:\n")
@@ -605,15 +605,15 @@ def main(_config, seed):
 
             # rotation rpy
             f.write("Rotation Error RPY:\n")
-            f.write(f"Iteration {i}: \tMean Rotation Roll Error: {errors_rpy[i][0].mean(): .4f} °"
-                    f"     Median Rotation Roll Error: {errors_rpy[i][0].median():.4f} °"
-                    f"     Std. Rotation Roll Error: {errors_rpy[i][0].std():.4f} °\n")
-            f.write(f"Iteration {i}: \tMean Rotation Pitch Error: {errors_rpy[i][1].mean(): .4f} °"
-                    f"     Median Rotation Pitch Error: {errors_rpy[i][1].median():.4f} °"
-                    f"     Std. Rotation Pitch Error: {errors_rpy[i][1].std():.4f} °\n")
-            f.write(f"Iteration {i}: \tMean Rotation Yaw Error: {errors_rpy[i][2].mean(): .4f} °"
-                    f"     Median Rotation Yaw Error: {errors_rpy[i][2].median():.4f} °"
-                    f"     Std. Rotation Yaw Error: {errors_rpy[i][2].std():.4f} °\n\n\n")
+            f.write(f"Iteration {i}: \tMean Rotation Roll Error: {errors_rpy[i][0].mean(): .4f} degree"
+                    f"     Median Rotation Roll Error: {errors_rpy[i][0].median():.4f} degree"
+                    f"     Std. Rotation Roll Error: {errors_rpy[i][0].std():.4f} degree\n")
+            f.write(f"Iteration {i}: \tMean Rotation Pitch Error: {errors_rpy[i][1].mean(): .4f} degree"
+                    f"     Median Rotation Pitch Error: {errors_rpy[i][1].median():.4f} degree"
+                    f"     Std. Rotation Pitch Error: {errors_rpy[i][1].std():.4f} degree\n")
+            f.write(f"Iteration {i}: \tMean Rotation Yaw Error: {errors_rpy[i][2].mean(): .4f} degree"
+                    f"     Median Rotation Yaw Error: {errors_rpy[i][2].median():.4f} degree"
+                    f"     Std. Rotation Yaw Error: {errors_rpy[i][2].std():.4f} degree\n\n\n")
 
     for i in range(len(errors_t2)):
         errors_t2[i] = torch.stack(errors_t2[i]).abs() / 100
@@ -730,8 +730,8 @@ def main(_config, seed):
         plt.plot(plot_yaw[:, 0], plot_yaw[:, 1], c='red', label='Yaw(Y)')
         plt.plot(plot_pitch[:, 0], plot_pitch[:, 1], c='blue', label='Pitch(X)')
         plt.plot(plot_roll[:, 0], plot_roll[:, 1], c='green', label='Roll(Z)')
-        plt.xlabel('Miscalibration (°)', font_EN)
-        plt.ylabel('Absolute Error (°)', font_EN)
+        plt.xlabel('Miscalibration (degree)', font_EN)
+        plt.ylabel('Absolute Error (degree)', font_EN)
         plt.legend(loc='best', prop=font_EN)
     elif _config['out_fig_lg'] == 'CN':
         plt.plot(plot_yaw[:, 0], plot_yaw[:, 1], c='red', label='偏航角')
@@ -757,7 +757,7 @@ def main(_config, seed):
     # ax = plt.gca()
 
     if _config['out_fig_lg'] == 'EN':
-        plt.xlabel('Absolute Rotation Error (°)', font_EN)
+        plt.xlabel('Absolute Rotation Error (degree)', font_EN)
         plt.ylabel('Number of instances', font_EN)
     elif _config['out_fig_lg'] == 'CN':
         plt.xlabel('绝对旋转误差/度', font_CN)

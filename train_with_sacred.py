@@ -8,7 +8,7 @@
 
 # Modified Author: Xudong Lv
 # based on github.com/cattaneod/CMRNet/blob/master/main_visibility_CALIB.py
-
+from logger import *
 import math
 import os
 import random
@@ -59,7 +59,7 @@ def config():
     max_t = 1.5 # 1.5, 1.0,  0.5,  0.2,  0.1
     max_r = 20 # 20.0, 10.0, 5.0,  2.0,  1.0
     batch_size = 240  # 120
-    num_worker = 6
+    num_worker = 16
     network = 'Res_f1'
     optimizer = 'adam'
     resume = True
@@ -71,19 +71,19 @@ def config():
     dropout = 0.0
     max_depth = 80.
     weight_point_cloud = 0.5
-    log_frequency = 10
+    log_frequency = 50
     print_frequency = 50
     starting_epoch = -1
 
 
 # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-os.environ['CUDA_VISIBLE_DEVICES'] = '4, 5, 6, 7'
+os.environ['CUDA_VISIBLE_DEVICES'] = '4,5,6,7'
 
 
 EPOCH = 1
 def _init_fn(worker_id, seed):
     seed = seed + worker_id + EPOCH*100
-    print(f"Init worker {worker_id} with seed {seed}")
+    INFO(f"Init worker {worker_id} with seed {seed}")
     torch.manual_seed(seed)
     np.random.seed(seed)
     random.seed(seed)
@@ -121,34 +121,22 @@ def lidar_project_depth(pc_rotated, cam_calib, img_shape):
 # CCN training
 @ex.capture
 def train(model, optimizer, rgb_img, refl_img, target_transl, target_rot, loss_fn, point_clouds, loss):
-    train_start = time.time()
     model.train()
-
-    train_end = time.time()
-    print(f'model.train() time cost:{train_end - train_start}')
     optimizer.zero_grad()
-
-    optimizer_end = time.time()
-    print(f'zero_grad time cost:{optimizer_end - train_end}')
     # Run model
     transl_err, rot_err = model(rgb_img, refl_img)
 
     model_end = time.time()
-    print(f'model time cost:{model_end - optimizer_end}')
     if loss == 'points_distance' or loss == 'combined':
         losses = loss_fn(point_clouds, target_transl, target_rot, transl_err, rot_err)
     else:
         losses = loss_fn(target_transl, target_rot, transl_err, rot_err)
 
     loss_end = time.time()
-    print(f'loss time cost :{loss_end - model_end}')
+    DEBUG(f'loss time cost :{loss_end - model_end}')
     losses['total_loss'].backward()
-    backward_end = time.time()
-    print(f'backward time cost:{backward_end - loss_end}')
     optimizer.step()
 
-    print(f'step time cost:{time.time() - backward_end}')
-    print(f'train function time cost:{time.time() - train_start}')
     return losses, rot_err, transl_err
 
 
@@ -191,13 +179,13 @@ def val(model, rgb_img, refl_img, target_transl, target_rot, loss_fn, point_clou
 @ex.automain
 def main(_config, _run, seed):
     global EPOCH
-    print('Loss Function Choice: {}'.format(_config['loss']))
+    INFO('Loss Function Choice: {}'.format(_config['loss']))
 
     if _config['val_sequence'] is None:
         raise TypeError('val_sequences cannot be None')
     else:
         _config['val_sequence'] = f"{_config['val_sequence']:02d}"
-        print("Val Sequence: ", _config['val_sequence'])
+        INFO("Val Sequence: {}".format(_config['val_sequence']))
         dataset_class = DatasetLidarCameraKittiOdometry
     img_shape = (384, 1280) # 网络的输入尺度
     input_size = (256, 512)
@@ -205,10 +193,10 @@ def main(_config, _run, seed):
 
     dataset_train = dataset_class(_config['data_folder'], max_r=_config['max_r'], max_t=_config['max_t'],
                                   split='train', use_reflectance=_config['use_reflectance'],
-                                  val_sequence=_config['val_sequence'])
+                                  val_sequence=_config['val_sequence'],config=_config, img_shape = img_shape)
     dataset_val = dataset_class(_config['data_folder'], max_r=_config['max_r'], max_t=_config['max_t'],
                                 split='val', use_reflectance=_config['use_reflectance'],
-                                val_sequence=_config['val_sequence'])
+                                val_sequence=_config['val_sequence'],config=_config, img_shape = img_shape)
     model_savepath = os.path.join(_config['checkpoints'], 'val_seq_' + _config['val_sequence'], 'models')
     if not os.path.exists(model_savepath):
         os.makedirs(model_savepath)
@@ -225,8 +213,8 @@ def main(_config, _run, seed):
 
     train_dataset_size = len(dataset_train)
     val_dataset_size = len(dataset_val)
-    print('Number of the train dataset: {}'.format(train_dataset_size))
-    print('Number of the val dataset: {}'.format(val_dataset_size))
+    INFO('Number of the train dataset: {}'.format(train_dataset_size))
+    INFO('Number of the val dataset: {}'.format(val_dataset_size))
 
     # Training and validation set creation
     num_worker = _config['num_worker']
@@ -249,8 +237,8 @@ def main(_config, _run, seed):
                                                 drop_last=False,
                                                 pin_memory=True)
 
-    print(len(TrainImgLoader))
-    print(len(ValImgLoader))
+    INFO(len(TrainImgLoader))
+    INFO(len(ValImgLoader))
 
     # loss function choice
     if _config['loss'] == 'simple':
@@ -290,7 +278,7 @@ def main(_config, _run, seed):
     else:
         raise TypeError("Network unknown")
     if _config['weights'] is not None:
-        print(f"Loading weights from {_config['weights']}")
+        INFO(f"Loading weights from {_config['weights']}")
         checkpoint = torch.load(_config['weights'], map_location='cpu')
         saved_state_dict = checkpoint['state_dict']
         model.load_state_dict(saved_state_dict)
@@ -310,7 +298,7 @@ def main(_config, _run, seed):
     model = nn.DataParallel(model)
     model = model.cuda()
 
-    print('Number of model parameters: {}'.format(sum([p.data.nelement() for p in model.parameters()])))
+    INFO('Number of model parameters: {}'.format(sum([p.data.nelement() for p in model.parameters()])))
 
     parameters = list(filter(lambda p: p.requires_grad, model.parameters()))
     if _config['loss'] == 'geometric':
@@ -342,7 +330,7 @@ def main(_config, _run, seed):
     val_iter = 0
     for epoch in range(starting_epoch, _config['epochs'] + 1):
         EPOCH = epoch
-        print('This is %d-th epoch' % epoch)
+        INFO('This is %d-th epoch' % epoch)
         epoch_start_time = time.time()
         total_train_loss = 0
         local_loss = 0.
@@ -359,6 +347,7 @@ def main(_config, _run, seed):
 
         ## Training ##
         time_for_50ep = time.time()
+        total_iter_start = time.time()
         for batch_idx, sample in enumerate(TrainImgLoader):
             #print(f'batch {batch_idx+1}/{len(TrainImgLoader)}', end='\r')
             start_time = time.time()
@@ -374,52 +363,59 @@ def main(_config, _run, seed):
             sample['rot_error'] = sample['rot_error'].cuda()
 
             start_preprocess = time.time()
-            for idx in range(len(sample['rgb'])):
-                # ProjectPointCloud in RT-pose
-                real_shape = [sample['rgb'][idx].shape[1], sample['rgb'][idx].shape[2], sample['rgb'][idx].shape[0]]
+            # for idx in range(len(sample['rgb'])):
+            #     # ProjectPointCloud in RT-pose
+            #     real_shape = [sample['rgb'][idx].shape[1], sample['rgb'][idx].shape[2], sample['rgb'][idx].shape[0]]
 
-                sample['point_cloud'][idx] = sample['point_cloud'][idx].cuda() # 变换到相机坐标系下的激光雷达点云
-                pc_lidar = sample['point_cloud'][idx].clone()
+            #     sample['point_cloud'][idx] = sample['point_cloud'][idx].cuda() # 变换到相机坐标系下的激光雷达点云
+            #     pc_lidar = sample['point_cloud'][idx].clone()
 
-                if _config['max_depth'] < 80.:
-                    pc_lidar = pc_lidar[:, pc_lidar[0, :] < _config['max_depth']].clone()
+            #     if _config['max_depth'] < 80.:
+            #         pc_lidar = pc_lidar[:, pc_lidar[0, :] < _config['max_depth']].clone()
 
-                depth_gt, uv = lidar_project_depth(pc_lidar, sample['calib'][idx], real_shape) # image_shape
-                depth_gt /= _config['max_depth']
+            #     depth_gt, uv = lidar_project_depth(pc_lidar, sample['calib'][idx], real_shape) # image_shape
+            #     depth_gt /= _config['max_depth']
 
-                R = mathutils.Quaternion(sample['rot_error'][idx]).to_matrix()
-                R.resize_4x4()
-                T = mathutils.Matrix.Translation(sample['tr_error'][idx])
-                RT = T * R
+            #     R = mathutils.Quaternion(sample['rot_error'][idx]).to_matrix()
+            #     R.resize_4x4()
+            #     T = mathutils.Matrix.Translation(sample['tr_error'][idx])
+            #     RT = T * R
 
-                pc_rotated = rotate_back(sample['point_cloud'][idx], RT) # Pc` = RT * Pc
+            #     pc_rotated = rotate_back(sample['point_cloud'][idx], RT) # Pc` = RT * Pc
 
-                if _config['max_depth'] < 80.:
-                    pc_rotated = pc_rotated[:, pc_rotated[0, :] < _config['max_depth']].clone()
+            #     if _config['max_depth'] < 80.:
+            #         pc_rotated = pc_rotated[:, pc_rotated[0, :] < _config['max_depth']].clone()
 
-                depth_img, uv = lidar_project_depth(pc_rotated, sample['calib'][idx], real_shape) # image_shape
-                depth_img /= _config['max_depth']
+            #     depth_img, uv = lidar_project_depth(pc_rotated, sample['calib'][idx], real_shape) # image_shape
+            #     depth_img /= _config['max_depth']
 
-                # PAD ONLY ON RIGHT AND BOTTOM SIDE
-                rgb = sample['rgb'][idx].cuda()
-                shape_pad = [0, 0, 0, 0]
+            #     # PAD ONLY ON RIGHT AND BOTTOM SIDE
+            #     rgb = sample['rgb'][idx].cuda()
+            #     shape_pad = [0, 0, 0, 0]
 
-                shape_pad[3] = (img_shape[0] - rgb.shape[1])  # // 2
-                shape_pad[1] = (img_shape[1] - rgb.shape[2])  # // 2 + 1
+            #     shape_pad[3] = (img_shape[0] - rgb.shape[1])  # // 2
+            #     shape_pad[1] = (img_shape[1] - rgb.shape[2])  # // 2 + 1
 
-                rgb = F.pad(rgb, shape_pad)
-                depth_img = F.pad(depth_img, shape_pad)
-                depth_gt = F.pad(depth_gt, shape_pad)
+            #     print(f'shape_padL{shape_pad}')
+            #     rgb = F.pad(rgb, shape_pad)
+            #     depth_img = F.pad(depth_img, shape_pad)
+            #     depth_gt = F.pad(depth_gt, shape_pad)
 
-                rgb_input.append(rgb)
-                lidar_input.append(depth_img)
-                lidar_gt.append(depth_gt)
-                real_shape_input.append(real_shape)
-                shape_pad_input.append(shape_pad)
-                pc_rotated_input.append(pc_rotated)
+            #     rgb_input.append(rgb)
+            #     lidar_input.append(depth_img)
+            #     lidar_gt.append(depth_gt)
+            #     real_shape_input.append(real_shape)
+            #     shape_pad_input.append(shape_pad)
+            #     pc_rotated_input.append(pc_rotated)
 
-            lidar_input = torch.stack(lidar_input)
-            rgb_input = torch.stack(rgb_input)
+            # lidar_input = torch.stack(sample['lidar_input'])
+            # rgb_input = torch.stack(sample['rgb_input'])
+            lidar_input = sample['lidar_input'].cuda()
+            rgb_input = sample['rgb_input'].cuda()
+            lidar_gt = sample['depth_gt']
+            real_shape_input = sample['real_shape']
+            shape_pad_input = sample['shape_pad']
+            pc_rotated_input = sample['pc_rotated']
             rgb_show = rgb_input.clone()
             lidar_show = lidar_input.clone()
             rgb_input = F.interpolate(rgb_input, size=[256, 512], mode="bilinear")
@@ -428,12 +424,16 @@ def main(_config, _run, seed):
             loss, R_predicted,  T_predicted = train(model, optimizer, rgb_input, lidar_input,
                                                    sample['tr_error'], sample['rot_error'],
                                                    loss_fn, sample['point_cloud'], _config['loss'])
-
+            DEBUG(f'train method time cost:{time.time() - end_preprocess}')
+            DEBUG(f'end train time cost{time.time() - start_time}')
+            DEBUG(f'end iter time cost{time.time() - total_iter_start}')
+            total_iter_start = time.time()
             for key in loss.keys():
                 if loss[key].item() != loss[key].item():
                     raise ValueError("Loss {} is NaN".format(key))
-
+            DEBUG(f'Nan time cost:{time.time() - total_iter_start}')
             if batch_idx % _config['log_frequency'] == 0:
+                log_start = time.time()
                 show_idx = 0
                 # output image: The overlay image of the input rgb image
                 # and the projected lidar pointcloud depth image
@@ -441,7 +441,7 @@ def main(_config, _run, seed):
                 R_predicted = quat2mat(R_predicted[show_idx])
                 T_predicted = tvector2mat(T_predicted[show_idx])
                 RT_predicted = torch.mm(T_predicted, R_predicted)
-                rotated_point_cloud = rotate_forward(rotated_point_cloud, RT_predicted)
+                rotated_point_cloud = rotate_forward(rotated_point_cloud.to(RT_predicted.device), RT_predicted)
 
                 depth_pred, uv = lidar_project_depth(rotated_point_cloud,
                                                     sample['calib'][show_idx],
@@ -469,12 +469,12 @@ def main(_config, _run, seed):
                 train_writer.add_scalar("Loss_Rotation", loss['rot_loss'].item(), train_iter)
                 if _config['loss'] == 'combined':
                     train_writer.add_scalar("Loss_Point_clouds", loss['point_clouds_loss'].item(), train_iter)
-
+                DEBUG(f'log time cost{time.time() - log_start}')
             local_loss += loss['total_loss'].item()
 
             if batch_idx % 50 == 0 and batch_idx != 0:
 
-                print(f'Iter {batch_idx}/{len(TrainImgLoader)} training loss = {local_loss/50:.3f}, '
+                INFO(f'Iter {batch_idx}/{len(TrainImgLoader)} training loss = {local_loss/50:.3f}, '
                       f'time = {(time.time() - start_time)/lidar_input.shape[0]:.4f}, '
                       #f'time_preprocess = {(end_preprocess-start_preprocess)/lidar_input.shape[0]:.4f}, '
                       f'time for 50 iter: {time.time()-time_for_50ep:.4f}')
@@ -485,10 +485,10 @@ def main(_config, _run, seed):
             train_iter += 1
             # total_iter += len(sample['rgb'])
 
-        print("------------------------------------")
-        print('epoch %d total training loss = %.3f' % (epoch, total_train_loss / len(dataset_train)))
-        print('Total epoch time = %.2f' % (time.time() - epoch_start_time))
-        print("------------------------------------")
+        INFO("------------------------------------")
+        INFO('epoch %d total training loss = %.3f' % (epoch, total_train_loss / len(dataset_train)))
+        INFO('Total epoch time = %.2f' % (time.time() - epoch_start_time))
+        INFO("------------------------------------")
         _run.log_scalar("Total training loss", total_train_loss / len(dataset_train), epoch)
 
         ## Validation ##
@@ -635,17 +635,17 @@ def main(_config, _run, seed):
             local_loss += loss['total_loss'].item()
 
             if batch_idx % 50 == 0 and batch_idx != 0:
-                print('Iter %d val loss = %.3f , time = %.2f' % (batch_idx, local_loss/50.,
+                INFO('Iter %d val loss = %.3f , time = %.2f' % (batch_idx, local_loss/50.,
                                                                   (time.time() - start_time)/lidar_input.shape[0]))
                 local_loss = 0.0
             total_val_loss += loss['total_loss'].item() * len(sample['rgb'])
             val_iter += 1
 
-        print("------------------------------------")
-        print('total val loss = %.3f' % (total_val_loss / len(dataset_val)))
-        print(f'total traslation error: {total_val_t / len(dataset_val)} cm')
-        print(f'total rotation error: {total_val_r / len(dataset_val)} °')
-        print("------------------------------------")
+        INFO("------------------------------------")
+        INFO('total val loss = %.3f' % (total_val_loss / len(dataset_val)))
+        INFO(f'total traslation error: {total_val_t / len(dataset_val)} cm')
+        INFO(f'total rotation error: {total_val_r / len(dataset_val)} degree')
+        INFO("------------------------------------")
 
         _run.log_scalar("Val_Loss", total_val_loss / len(dataset_val), epoch)
         _run.log_scalar("Val_t_error", total_val_t / len(dataset_val), epoch)
@@ -670,11 +670,11 @@ def main(_config, _run, seed):
                 'train_loss': total_train_loss / len(dataset_train),
                 'val_loss': total_val_loss / len(dataset_val),
             }, savefilename)
-            print(f'Model saved as {savefilename}')
+            INFO(f'Model saved as {savefilename}')
             if old_save_filename is not None:
                 if os.path.exists(old_save_filename):
                     os.remove(old_save_filename)
             old_save_filename = savefilename
 
-    print('full training time = %.2f HR' % ((time.time() - start_full_time) / 3600))
+    INFO('full training time = %.2f HR' % ((time.time() - start_full_time) / 3600))
     return _run.result
