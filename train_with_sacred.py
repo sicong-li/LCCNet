@@ -30,7 +30,7 @@ from sacred import Experiment
 from sacred.utils import apply_backspaces_and_linefeeds
 
 from DatasetLidarCamera import DatasetLidarCameraKittiOdometry, MultiEpochsDataLoader
-from losses import DistancePoints3D, GeometricLoss, L1Loss, ProposedLoss, CombinedLoss, CombinedLoss_Matrix
+from losses import DistancePoints3D, GeometricLoss, L1Loss, ProposedLoss, CombinedLoss
 from models.LCCNet import LCCNet
 
 from quaternion_distances import quaternion_distance
@@ -255,7 +255,7 @@ def main(_config, _run, seed):
     elif _config['loss'] == 'L1':
         loss_fn = L1Loss(_config['rescale_transl'], _config['rescale_rot'])
     elif _config['loss'] == 'combined':
-        loss_fn = CombinedLoss_Matrix(_config['rescale_transl'], _config['rescale_rot'], _config['weight_point_cloud'])
+        loss_fn = CombinedLoss(_config['rescale_transl'], _config['rescale_rot'], _config['weight_point_cloud'])
     else:
         raise ValueError("Unknown Loss Function")
 
