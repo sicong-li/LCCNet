@@ -1,3 +1,11 @@
+# What new in this repo?
+## change loss compute to batch operater, this can 3X times faster than origin.
+## modify the customer op to support torch1.8
+## optimizer dataloader logit
+
+
+
+
 # LCCNet
 
 Official PyTorch implementation of the paper “LCCNet: Lidar and Camera Self-Calibration Using Cost Volume Network”. A video of the demonstration of the method can be found on
