@@ -8,6 +8,8 @@
 
 # Modified Author: Xudong Lv
 # based on github.com/cattaneod/CMRNet/blob/master/main_visibility_CALIB.py
+import torch.multiprocessing
+torch.multiprocessing.set_sharing_strategy('file_system')
 from logger import *
 import math
 import os
@@ -27,8 +29,8 @@ import torch.nn as nn
 from sacred import Experiment
 from sacred.utils import apply_backspaces_and_linefeeds
 
-from DatasetLidarCamera import DatasetLidarCameraKittiOdometry
-from losses import DistancePoints3D, GeometricLoss, L1Loss, ProposedLoss, CombinedLoss
+from DatasetLidarCamera import DatasetLidarCameraKittiOdometry, MultiEpochsDataLoader
+from losses import DistancePoints3D, GeometricLoss, L1Loss, ProposedLoss, CombinedLoss, CombinedLoss_Matrix
 from models.LCCNet import LCCNet
 
 from quaternion_distances import quaternion_distance
@@ -63,7 +65,7 @@ def config():
     network = 'Res_f1'
     optimizer = 'adam'
     resume = True
-    weights = None
+    weights = 'checkpoints/kitti/odom/val_seq_00/models/checkpoint_r20.00_t1.50_e43_0.196.tar'
     rescale_rot = 1.0
     rescale_transl = 2.0
     precision = "O0"
@@ -74,10 +76,10 @@ def config():
     log_frequency = 50
     print_frequency = 50
     starting_epoch = -1
-
+    max_points = 100000
 
 # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-os.environ['CUDA_VISIBLE_DEVICES'] = '4,5,6,7'
+# os.environ['CUDA_VISIBLE_DEVICES'] = '4,5,6,7'
 
 
 EPOCH = 1
@@ -193,10 +195,12 @@ def main(_config, _run, seed):
 
     dataset_train = dataset_class(_config['data_folder'], max_r=_config['max_r'], max_t=_config['max_t'],
                                   split='train', use_reflectance=_config['use_reflectance'],
-                                  val_sequence=_config['val_sequence'],config=_config, img_shape = img_shape)
+                                  val_sequence=_config['val_sequence'],config=_config, img_shape = img_shape,
+                                  max_points = _config['max_points'])
     dataset_val = dataset_class(_config['data_folder'], max_r=_config['max_r'], max_t=_config['max_t'],
                                 split='val', use_reflectance=_config['use_reflectance'],
-                                val_sequence=_config['val_sequence'],config=_config, img_shape = img_shape)
+                                val_sequence=_config['val_sequence'],config=_config, img_shape = img_shape,
+                                max_points = _config['max_points'])
     model_savepath = os.path.join(_config['checkpoints'], 'val_seq_' + _config['val_sequence'], 'models')
     if not os.path.exists(model_savepath):
         os.makedirs(model_savepath)
@@ -219,23 +223,23 @@ def main(_config, _run, seed):
     # Training and validation set creation
     num_worker = _config['num_worker']
     batch_size = _config['batch_size']
-    TrainImgLoader = torch.utils.data.DataLoader(dataset=dataset_train,
-                                                 shuffle=True,
-                                                 batch_size=batch_size,
-                                                 num_workers=num_worker,
-                                                 worker_init_fn=init_fn,
-                                                 collate_fn=merge_inputs,
-                                                 drop_last=False,
-                                                 pin_memory=True)
+    TrainImgLoader = MultiEpochsDataLoader(dataset=dataset_train,
+                                            shuffle=True,
+                                            batch_size=batch_size,
+                                            num_workers=num_worker,
+                                            worker_init_fn=init_fn,
+                                            collate_fn=merge_inputs,
+                                            drop_last=False,
+                                            pin_memory=True)
 
-    ValImgLoader = torch.utils.data.DataLoader(dataset=dataset_val,
-                                                shuffle=False,
-                                                batch_size=batch_size,
-                                                num_workers=num_worker,
-                                                worker_init_fn=init_fn,
-                                                collate_fn=merge_inputs,
-                                                drop_last=False,
-                                                pin_memory=True)
+    ValImgLoader = MultiEpochsDataLoader(dataset=dataset_val,
+                                            shuffle=False,
+                                            batch_size=batch_size,
+                                            num_workers=num_worker,
+                                            worker_init_fn=init_fn,
+                                            collate_fn=merge_inputs,
+                                            drop_last=False,
+                                            pin_memory=True)
 
     INFO(len(TrainImgLoader))
     INFO(len(ValImgLoader))
@@ -251,7 +255,7 @@ def main(_config, _run, seed):
     elif _config['loss'] == 'L1':
         loss_fn = L1Loss(_config['rescale_transl'], _config['rescale_rot'])
     elif _config['loss'] == 'combined':
-        loss_fn = CombinedLoss(_config['rescale_transl'], _config['rescale_rot'], _config['weight_point_cloud'])
+        loss_fn = CombinedLoss_Matrix(_config['rescale_transl'], _config['rescale_rot'], _config['weight_point_cloud'])
     else:
         raise ValueError("Unknown Loss Function")
 

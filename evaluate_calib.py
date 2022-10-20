@@ -64,7 +64,7 @@ os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 @ex.config
 def config():
     dataset = 'kitti/odom'
-    data_folder = '/home/wangshuo/Datasets/KITTI/odometry_color/'
+    data_folder = '/data/kitti_odometry/dataset'
     test_sequence = 0
     use_prev_output = False
     max_t = 1.5
@@ -165,8 +165,8 @@ def main(_config, seed):
         if isinstance(_config['test_sequence'], int):
             _config['test_sequence'] = f"{_config['test_sequence']:02d}"
         dataset_val = dataset_class(_config['data_folder'], max_r=_config['max_r'], max_t=_config['max_t'],
-                                    split='test', use_reflectance=_config['use_reflectance'],
-                                    val_sequence=_config['test_sequence'])
+                                split='test', use_reflectance=_config['use_reflectance']
+                                ,config=_config, img_shape = img_shape)
 
     np.random.seed(seed)
     torch.random.manual_seed(seed)
@@ -174,7 +174,7 @@ def main(_config, seed):
     def init_fn(x):
         return _init_fn(x, seed)
 
-    num_worker = 6
+    num_worker = 0
     batch_size = 1
 
     TestImgLoader = torch.utils.data.DataLoader(dataset=dataset_val,

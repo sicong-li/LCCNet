@@ -204,8 +204,8 @@ def main(_config, _run, seed):
         time_for_50ep = time.time()
         total_iter_start = time.time()
         # for batch_idx, sample in enumerate(dataset_train):
-        for batch_idx, sample in enumerate(TrainImgLoader):
-        # for i in range(10000000):
+        # for batch_idx, sample in enumerate(TrainImgLoader):
+        for i in range(10000000):
             sample = dataset_train.__getitem__(10)
             #print(f'batch {batch_idx+1}/{len(TrainImgLoader)}', end='\r')
             start_time = time.time()

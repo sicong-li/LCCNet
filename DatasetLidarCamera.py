@@ -79,10 +79,11 @@ class DatasetLidarCameraKittiOdometry(Dataset):
 
     def __init__(self, dataset_dir, transform=None, augmentation=False, use_reflectance=False,
                  max_t=1.5, max_r=20., split='val', device='cpu', val_sequence='00', suf='.png',val=False,
-                 dataset=None,config=None, img_shape = None):
+                 dataset=None,config=None, img_shape = None, max_points = 20000):
         super(DatasetLidarCameraKittiOdometry, self).__init__()
         self._config = config
         self.img_shape = img_shape
+        self.max_points = max_points
         if dataset == "neolix":
             print('excute neolix dataset init')
             self.__init_kitti_data__(dataset_dir, transform, augmentation, use_reflectance,
@@ -292,6 +293,10 @@ class DatasetLidarCameraKittiOdometry(Dataset):
         valid_indices = valid_indices | (pc[:, 1] < -3.)
         valid_indices = valid_indices | (pc[:, 1] > 3.)
         pc = pc[valid_indices].copy()
+        if pc.shape[0] >= self.max_points:
+            pc = pc[:self.max_points,:]
+        else:
+            pc = np.pad(pc, [[0,self.max_points - pc.shape[0]],[0, 0]], constant_values=0)
         pc_org = torch.from_numpy(pc.astype(np.float32))
         # if self.use_reflectance:
         #     reflectance = pc[:, 3].copy()
@@ -309,9 +314,8 @@ class DatasetLidarCameraKittiOdometry(Dataset):
                 pc_org[3, :] = 1.
         else:
             raise TypeError("Wrong PointCloud shape")
-        pc_rot = torch.mm(torch.from_numpy(RT), pc_org).numpy()
+        pc_rot = np.matmul(RT,pc_org.numpy())
         # a = (RT @ pc_org.T).T
-        # pc_rot = np.einsum('ij,nj->ni', RT, pc_org)
         pc_rot = pc_rot.astype(np.float32).copy()
         pc_in = torch.from_numpy(pc_rot)
 
@@ -670,4 +674,34 @@ class DatasetLidarCameraKittiRaw(Dataset):
                   'extrin': E_RT, 'initial_RT': initial_RT, 'pc_lidar': pc_lidar}
 
         return sample
+
+class MultiEpochsDataLoader(torch.utils.data.DataLoader):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._DataLoader__initialized = False
+        self.batch_sampler = _RepeatSampler(self.batch_sampler)
+        self._DataLoader__initialized = True
+        self.iterator = super().__iter__()
+
+    def __len__(self):
+        return len(self.batch_sampler.sampler)
+
+    def __iter__(self):
+        for i in range(len(self)):
+            yield next(self.iterator)
+
+
+class _RepeatSampler(object):
+    """ Sampler that repeats forever.
+    Args:
+        sampler (Sampler)
+    """
+
+    def __init__(self, sampler):
+        self.sampler = sampler
+
+    def __iter__(self):
+        while True:
+            yield from iter(self.sampler)
 

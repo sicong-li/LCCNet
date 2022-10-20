@@ -495,7 +495,7 @@ class LCCNet(nn.Module):
             c16 = self.layer4_rgb(c15)  # 32
             c26 = self.layer4_lidar(c25)  # 32
 
-        corr6 = self.corr(c16, c26)
+        corr6 = self.corr(c16, c26) #[1, 81, 8, 16]
         corr6 = self.leakyRELU(corr6)
         x = torch.cat((self.conv6_0(corr6), corr6), 1)
         x = torch.cat((self.conv6_1(x), x), 1)

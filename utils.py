@@ -60,6 +60,57 @@ def rotate_points_torch(PC, R, T=None, inverse=True):
         raise TypeError("Point cloud must have shape [Nx4] or [4xN] (homogeneous coordinates)")
     return PC
 
+def rotate_points_torch_batch(PC, R, T=None, inverse=True):
+    if T is not None:
+        R = quat2mat_batch(R)
+        T = tvector2mat_batch(T)
+        RT = torch.bmm(T, R)
+    else:
+        RT = R.clone()
+    if inverse:
+        RT = inverse_batch(RT)
+
+    if PC.shape[1] == 4:
+        PC = torch.bmm(RT, PC)
+    elif PC.shape[2] == 4:
+        PC = torch.bmm(RT, PC.permute(0,2,1))
+        PC = PC.t()
+    else:
+        raise TypeError("Point cloud must have shape [Nx4] or [4xN] (homogeneous coordinates)")
+    return PC
+
+def rotate_forward_batch(PC, R, T=None):
+    """
+    Transform the point cloud PC, so to have the points 'as seen from' the new
+    pose T*R
+    Args:
+        PC (torch.Tensor): Point Cloud to be transformed, shape [4xN] or [Nx4]
+        R (torch.Tensor/mathutils.Euler): can be either:
+            * (mathutils.Euler) euler angles of the rotation part, in this case T cannot be None
+            * (torch.Tensor shape [4]) quaternion representation of the rotation part, in this case T cannot be None
+            * (mathutils.Matrix shape [4x4]) Rotation matrix,
+                in this case it should contains the translation part, and T should be None
+            * (torch.Tensor shape [4x4]) Rotation matrix,
+                in this case it should contains the translation part, and T should be None
+        T (torch.Tensor/mathutils.Vector): Translation of the new pose, shape [3], or None (depending on R)
+
+    Returns:
+        torch.Tensor: Transformed Point Cloud 'as seen from' pose T*R
+    """
+    if isinstance(R, torch.Tensor):
+        return rotate_points_torch_batch(PC, R, T, inverse=True)
+    else:
+        raise TypeError("Only tensor support")
+
+
+def rotate_back_batch(PC_ROTATED, R, T=None):
+    """
+    Inverse of :func:`~utils.rotate_forward`.
+    """
+    if isinstance(R, torch.Tensor):
+        return rotate_points_torch_batch(PC_ROTATED, R, T, inverse=False)
+    else:
+        return rotate_points(PC_ROTATED, R, T, inverse=False)
 
 def rotate_forward(PC, R, T=None):
     """
@@ -129,19 +180,28 @@ def merge_inputs(queries):
     for input in queries:
         point_clouds.append(input['point_cloud'])
         imgs.append(input['rgb'])
-        pc_rotated.append(input['pc_rotated'])
-        shape_pad.append(input['shape_pad'])
-        real_shape.append(input['real_shape'])
-        depth_gt.append(input['depth_gt'])
+
+        if 'pc_rotated' in input:
+            pc_rotated.append(input['pc_rotated'])
+        if 'shape_pad' in input:
+            shape_pad.append(input['shape_pad'])
+        if 'real_shape' in input:
+            real_shape.append(input['real_shape'])
+        if 'depth_gt' in input:
+            depth_gt.append(input['depth_gt'])
         if 'reflectance' in input:
             reflectances.append(input['reflectance'])
     returns['point_cloud'] = point_clouds
     returns['rgb'] = imgs
-    returns['pc_rotated'] = pc_rotated
-    returns['shape_pad'] = shape_pad
-    returns['real_shape'] = real_shape
-    returns['depth_gt'] = depth_gt
-
+    
+    if len(pc_rotated) > 0:
+        returns['pc_rotated'] = pc_rotated
+    if len(shape_pad) > 0:
+        returns['shape_pad'] = shape_pad
+    if len(real_shape) > 0:
+        returns['real_shape'] = real_shape
+    if len(depth_gt) > 0:
+        returns['depth_gt'] = depth_gt
     if len(reflectances) > 0:
         returns['reflectance'] = reflectances
     return returns
@@ -234,6 +294,34 @@ def quat2mat(q):
     mat[3, 3] = 1.
     return mat
 
+def quat2mat_batch(q):
+    """
+    Convert a quaternion to a rotation matrix
+    Args:
+        q (torch.Tensor): shape [N,4], input quaternion
+
+    Returns:
+        torch.Tensor: [4x4] homogeneous rotation matrix
+    """
+    assert q.shape[1] == 4, "Not a valid quaternion"
+    q = q / q.norm(dim=[1]).reshape(q.shape[0],1)
+    mat = torch.zeros((q.shape[0], 4, 4), device=q.device)
+    mat[:,0, 0] = 1 - 2*q[:,2]**2 - 2*q[:,3]**2
+    mat[:, 0, 1] = 2*q[:, 1]*q[:, 2] - 2*q[:, 3]*q[:, 0]
+    mat[:, 0, 2] = 2*q[:, 1]*q[:, 3] + 2*q[:, 2]*q[:, 0]
+    mat[:, 1, 0] = 2*q[:, 1]*q[:, 2] + 2*q[:, 3]*q[:, 0]
+    mat[:, 1, 1] = 1 - 2*q[:, 1]**2 - 2*q[:, 3]**2
+    mat[:, 1, 2] = 2*q[:, 2]*q[:, 3] - 2*q[:, 1]*q[:, 0]
+    mat[:, 2, 0] = 2*q[:, 1]*q[:, 3] - 2*q[:, 2]*q[:, 0]
+    mat[:, 2, 1] = 2*q[:, 2]*q[:, 3] + 2*q[:, 1]*q[:, 0]
+    mat[:, 2, 2] = 1 - 2*q[:, 1]**2 - 2*q[:, 2]**2
+    mat[:, 3, 3] = 1.
+    return mat
+
+def inverse_batch(b_mat):
+    eye = b_mat.new_ones(b_mat.size(-1)).diag().expand_as(b_mat)
+    b_inv, _ = torch.solve(eye, b_mat)
+    return b_inv
 
 def tvector2mat(t):
     """
@@ -252,6 +340,23 @@ def tvector2mat(t):
     mat[2, 3] = t[2]
     return mat
 
+def tvector2mat_batch(t):
+    """
+    Translation vector to homogeneous transformation matrix with identity rotation
+    Args:
+        t (torch.Tensor): shape=[N,3], translation vector
+
+    Returns:
+        torch.Tensor: [4x4] homogeneous transformation matrix
+
+    """
+    N = t.shape[1]
+    assert N == 3, "Not a valid translation"
+    mat = torch.stack([torch.eye(4, device=t.device)] * t.shape[0])
+    mat[:, 0, 3] = t[:, 0]
+    mat[:, 1, 3] = t[:, 1]
+    mat[:, 2, 3] = t[:, 2]
+    return mat
 
 def mat2xyzrpy(rotmatrix):
     """

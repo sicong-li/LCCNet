@@ -11,10 +11,11 @@
 
 import torch
 from torch import nn as nn
+import numpy as np
 import time
 from logger import *
 from quaternion_distances import quaternion_distance
-from utils import quat2mat, rotate_back, rotate_forward, tvector2mat, quaternion_from_matrix
+from utils import quat2mat, quat2mat_batch, rotate_back, rotate_forward, tvector2mat, quaternion_from_matrix, tvector2mat_batch, inverse_batch, rotate_forward_batch
 
 
 class GeometricLoss(nn.Module):
@@ -83,7 +84,6 @@ class DistancePoints3D(nn.Module):
         Returns:
             The mean distance between 3D points
         """
-        #start = time.time()
         total_loss = torch.tensor([0.0]).to(transl_err.device)
         for i in range(len(point_clouds)):
             point_cloud_gt = point_clouds[i].to(transl_err.device)
@@ -104,9 +104,6 @@ class DistancePoints3D(nn.Module):
             error = (point_cloud_out - point_cloud_gt).norm(dim=0)
             error.clamp(100.)
             total_loss += error.mean()
-
-        #end = time.time()
-        #print("3D Distance Time: ", end-start)
 
         return total_loss/target_transl.shape[0]
 
@@ -146,25 +143,29 @@ class CombinedLoss(nn.Module):
 
         start = time.time()
         point_clouds_loss = torch.tensor([0.0]).to(transl_err.device)
-        for i in range(len(point_clouds)):
-            point_cloud_gt = point_clouds[i].to(transl_err.device)
-            point_cloud_out = point_clouds[i].clone().to(transl_err.device)
 
-            R_target = quat2mat(target_rot[i])
-            T_target = tvector2mat(target_transl[i])
-            RT_target = torch.mm(T_target, R_target)
+        shape = []
+        for p in point_clouds:
+            shape.append(p.shape[-1])
+        shape = np.asarray(shape)
 
-            R_predicted = quat2mat(rot_err[i])
-            T_predicted = tvector2mat(transl_err[i])
-            RT_predicted = torch.mm(T_predicted, R_predicted)
+        point_cloud_gt = torch.stack(point_clouds).to(transl_err.device)
+        point_cloud_out = point_cloud_gt.clone()
+        R_target = quat2mat_batch(target_rot)
+        T_target = tvector2mat_batch(target_transl)
+        RT_target = torch.bmm(T_target,R_target)
 
-            RT_total = torch.mm(RT_target.inverse(), RT_predicted)
-            RT_total = RT_total.to(point_cloud_out.device)
-            point_cloud_out = rotate_forward(point_cloud_out, RT_total)
+        R_predicted = quat2mat_batch(rot_err)
+        T_predicted = tvector2mat_batch(transl_err)
+        RT_predicted = torch.bmm(T_predicted, R_predicted)
 
-            error = (point_cloud_out - point_cloud_gt).norm(dim=0)
-            error.clamp(100.)
-            point_clouds_loss += error.mean()
+        RT_total = torch.bmm(inverse_batch(RT_target.inverse()), RT_predicted)
+
+        point_cloud_out = rotate_forward_batch(point_cloud_out, RT_total)
+
+        error = (point_cloud_out - point_cloud_gt).norm(dim=0)
+        error.clamp(100.)
+        point_clouds_loss += error.mean()
 
         DEBUG("3D Distance Time: {}".format(time.time() - start))
         total_loss = (1 - self.weight_point_cloud) * pose_loss +\
@@ -175,4 +176,3 @@ class CombinedLoss(nn.Module):
         self.loss['point_clouds_loss'] = point_clouds_loss/target_transl.shape[0]
 
         return self.loss
-
