@@ -1,7 +1,7 @@
 # What new in this repo?
-## change loss compute to batch operater, this can 3X times faster than origin.
-## modify the customer op to support torch1.8
-## optimizer dataloader logit
+* change loss compute to batch operater, this can 3X times faster than origin.
+* modify the customer op to support torch1.8
+* optimizer dataloader logit
 
 
 
