@@ -3,7 +3,8 @@
 * modify the customer op to support torch1.8
 * optimizer dataloader logit
 
-the train time on single A100 with batch_size 128
+the train time on single A100 with batch_size 128:
+
 ![截屏2022-10-20 下午8 34 29](https://user-images.githubusercontent.com/8938339/196949867-112658e7-20db-4126-8a3d-4b6ec3d2d9f5.png)
 
 
